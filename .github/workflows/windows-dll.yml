@@ -71,7 +71,10 @@ jobs:
             "ess_qjs_undefined_tag",
             "ess_qjs_test_pascal_callback",
             "ess_qjs_set_log_callback",
-            "ess_qjs_register_log_function"
+            "ess_qjs_register_log_function",
+            "ess_qjs_set_native_callback",
+            "ess_qjs_register_native_function",
+            "ess_qjs_call_function"
           )
 
           foreach ($export in $exports) {
