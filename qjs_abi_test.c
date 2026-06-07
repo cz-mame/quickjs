@@ -30,7 +30,7 @@ typedef struct ESSQJSArg {
     int bool_value;
 } ESSQJSArg;
 
-typedef void (*ESSQJSNativeCallback)(int callback_id, int argc, const ESSQJSArg *argv);
+typedef int (*ESSQJSNativeCallback)(int callback_id, int argc, const ESSQJSArg *argv, ESSQJSArg *result);
 
 static ESSQJSLogCallback ess_qjs_log_callback = NULL;
 static ESSQJSNativeCallback ess_qjs_native_callback = NULL;
@@ -136,12 +136,29 @@ static void ess_qjs_free_args(JSContext *ctx, int argc, ESSQJSArg *args)
     free(args);
 }
 
+static void ess_qjs_init_arg(ESSQJSArg *arg)
+{
+    if (!arg)
+        return;
+
+    arg->type = ESS_QJS_ARG_NULL;
+    arg->name = NULL;
+    arg->string_value = NULL;
+    arg->int_value = 0;
+    arg->double_value = 0;
+    arg->bool_value = 0;
+}
+
 static JSValue ess_qjs_native_bridge(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic)
 {
     ESSQJSArg *args = NULL;
+    ESSQJSArg result_arg;
+    JSValue result_value;
+    int callback_result;
     int i;
 
     (void)this_val;
+    ess_qjs_init_arg(&result_arg);
 
     if (argc > 0) {
         args = (ESSQJSArg *)calloc((size_t)argc, sizeof(ESSQJSArg));
@@ -156,11 +173,24 @@ static JSValue ess_qjs_native_bridge(JSContext *ctx, JSValueConst this_val, int 
         }
     }
 
-    if (ess_qjs_native_callback)
-        ess_qjs_native_callback(magic, argc, args);
+    if (!ess_qjs_native_callback) {
+        ess_qjs_free_args(ctx, argc, args);
+        return JS_UNDEFINED;
+    }
+
+    callback_result = ess_qjs_native_callback(magic, argc, args, &result_arg);
+    if (callback_result != 0) {
+        ess_qjs_free_args(ctx, argc, args);
+        return JS_UNDEFINED;
+    }
+
+    if (ess_qjs_make_value(ctx, &result_arg, &result_value) != 0) {
+        ess_qjs_free_args(ctx, argc, args);
+        return JS_EXCEPTION;
+    }
 
     ess_qjs_free_args(ctx, argc, args);
-    return JS_UNDEFINED;
+    return result_value;
 }
 
 static JSValue ess_qjs_log_bridge(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
