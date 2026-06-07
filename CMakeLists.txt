@@ -267,6 +267,7 @@ set(qjs_sources
     dtoa.c
     libregexp.c
     libunicode.c
+    qjs_abi_test.c
     quickjs.c
 )
 
