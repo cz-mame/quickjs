@@ -12,6 +12,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify ABI test sources
+        shell: powershell
+        run: |
+          if (!(Test-Path qjs_abi_test.c)) {
+            throw "qjs_abi_test.c is missing in the checked out sources"
+          }
+          if (!(Select-String -Path CMakeLists.txt -Pattern "qjs_abi_test.c" -Quiet)) {
+            throw "qjs_abi_test.c is not listed in CMakeLists.txt"
+          }
+          Get-Item qjs_abi_test.c
+          Select-String -Path CMakeLists.txt -Pattern "qjs_abi_test.c"
+
       - name: Configure
         run: >
           cmake -S . -B build
@@ -24,6 +36,52 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release
+
+      - name: Verify ABI exports
+        shell: powershell
+        run: |
+          $dll = Get-ChildItem build -Recurse -Filter qjs.dll | Select-Object -First 1
+          if ($null -eq $dll) {
+            throw "qjs.dll was not found in the build output"
+          }
+
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class K32 {
+            [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Ansi)]
+            public static extern IntPtr LoadLibrary(string lpFileName);
+            [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Ansi)]
+            public static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+            [DllImport("kernel32", SetLastError=true)]
+            public static extern bool FreeLibrary(IntPtr hModule);
+          }
+          '@
+
+          $handle = [K32]::LoadLibrary($dll.FullName)
+          if ($handle -eq [IntPtr]::Zero) {
+            throw "Cannot load $($dll.FullName)"
+          }
+
+          $exports = @(
+            "JS_NewRuntime",
+            "ess_qjs_sizeof_jsvalue",
+            "ess_qjs_offset_jsvalue_tag",
+            "ess_qjs_sizeof_pointer",
+            "ess_qjs_undefined_tag",
+            "ess_qjs_test_pascal_callback"
+          )
+
+          foreach ($export in $exports) {
+            $address = [K32]::GetProcAddress($handle, $export)
+            if ($address -eq [IntPtr]::Zero) {
+              [K32]::FreeLibrary($handle) | Out-Null
+              throw "Missing export: $export"
+            }
+            Write-Host "$export = $address"
+          }
+
+          [K32]::FreeLibrary($handle) | Out-Null
 
       - name: Collect DLL
         shell: powershell
